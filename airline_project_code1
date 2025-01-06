@@ -1,0 +1,378 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, confusion_matrix, make_scorer
+from imblearn.over_sampling import SMOTE
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.impute import KNNImputer
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.naive_bayes import GaussianNB
+from sklearn.feature_selection import SelectKBest, chi2
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.datasets import load_digits, load_iris 
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# check if there are repeats of individuals in the training data
+dataset_train = pd.read_csv('train.csv')
+unique_ids_train = dataset_train['id'].unique()
+num_unique_ids_train = len(unique_ids_train)
+# print(num_unique_ids_train)      ## no repeats
+
+# remove id column for training data
+dataset_train.drop(columns=['id'], inplace=True)
+
+# check if there are repeats of individuals in the testing data
+dataset_test = pd.read_csv('test.csv')
+unique_ids_test= dataset_test['id'].unique()
+num_unique_ids_test = len(unique_ids_test)
+# print(num_unique_ids_test)        ## no repeats
+
+# remove id column for testing data
+dataset_test.drop(columns=['id'], inplace=True)
+
+# rename columns
+dataset_train.rename(columns={'class': 'class-of-service'}, inplace=True)
+dataset_test.rename(columns={'class': 'class-of-service'}, inplace=True)
+dataset_train.rename(columns={'online-boarding': 'ease-of-online-checkin'}, inplace=True)
+dataset_test.rename(columns={'online-boarding': 'ease-of-online-checkin'}, inplace=True)
+
+# separate features and target in train and test data
+x_train = dataset_train.drop('satisfaction', axis=1)
+y_train = dataset_train['satisfaction']
+x_test = dataset_test.drop('satisfaction', axis=1)
+y_test = dataset_test['satisfaction']
+
+# Check for missing values in datasets
+
+# train data
+#missing_values_train = x_train.isna().sum()
+#print(missing_values_train)    ## 310 missing values in 'arrival-delay-in-minutes'
+
+# test data
+#missing_values_test = x_test.isna().sum()
+#print(missing_values_test)     ## 83 missing values in 'arrival-delay-in-minutes'
+
+# Pie Chart
+#satisfaction_counts = dataset_train['satisfaction'].value_counts(normalize=True) * 100
+#labels = satisfaction_counts.index
+#sizes = satisfaction_counts.values
+
+#colors = ['lightgreen', 'lightcoral']
+#explode = (0.1, 0)  # Explode the 1st slice (satisfied), adjust as needed
+
+#plt.figure(figsize=(8, 6))
+#plt.pie(sizes, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%', shadow=True, startangle=140)
+#plt.title('Satisfaction Distribution')
+#plt.axis('equal')
+#plt.show()
+
+## CONVERT ALL DATA TO NUMERICAL DATA
+
+# Initialize LabelEncoder
+label_encoder = LabelEncoder()
+
+x_train['gender'] = label_encoder.fit_transform(x_train['gender'])
+x_train['customer-type'] = label_encoder.fit_transform(x_train['customer-type'])
+x_train['type-of-travel'] = label_encoder.fit_transform(x_train['type-of-travel'])
+x_train['class-of-service'] = label_encoder.fit_transform(x_train['class-of-service'])
+
+x_test['gender'] = label_encoder.fit_transform(x_test['gender'])
+x_test['customer-type'] = label_encoder.fit_transform(x_test['customer-type'])
+x_test['type-of-travel'] = label_encoder.fit_transform(x_test['type-of-travel'])
+x_test['class-of-service'] = label_encoder.fit_transform(x_test['class-of-service'])
+
+# map target variable to numerical values
+target_mapping = {'neutral or dissatisfied': 0, 'satisfied': 1}
+y_train = y_train.map(target_mapping)
+y_test = y_test.map(target_mapping)
+
+
+## HANDLE MISSING VALUES using 3 different methods
+
+# METHOD ONE: replace missing values using mean
+#imputer = SimpleImputer(strategy='mean')
+#x_train = pd.DataFrame(imputer.fit_transform(x_train), columns=x_train.columns) ## mean is approximately 15.2 mins
+#x_test = pd.DataFrame(imputer.transform(x_test), columns=x_test.columns) ## mean is approximately 15.2 mins
+
+# METHOD TWO: delete missing values
+missing_train = x_train['arrival-delay-in-minutes'].isna()
+missing_test = x_test['arrival-delay-in-minutes'].isna()
+
+x_train = x_train[~missing_train]
+y_train = y_train[~missing_train]
+x_test = x_test[~missing_test]
+y_test = y_test[~missing_test]
+
+# METHOD THREE: replace missing values using KNN
+# imputer = KNNImputer(n_neighbors=5)
+# x_train_imputed = imputer.fit_transform(x_train)
+# x_test_imputed = imputer.transform(x_test)
+# x_train_imputed = pd.DataFrame(x_train_imputed, columns=x_train.columns)
+# x_test_imputed = pd.DataFrame(x_test_imputed, columns=x_test.columns)
+
+# Pie Chart for missing values after values are deleted
+
+# combine x_train and y_train
+combined_train = pd.concat([x_train, y_train], axis=1)
+
+#satisfaction_counts = combined_train['satisfaction'].value_counts(normalize=True) * 100
+#labels = satisfaction_counts.index
+#sizes = satisfaction_counts.values
+
+#colors = ['lightgreen', 'lightcoral']
+#explode = (0.1, 0)  # Explode the 1st slice (satisfied), adjust as needed
+
+#plt.figure(figsize=(8, 6))
+#plt.pie(sizes, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%', shadow=True, startangle=140)
+#plt.title('Satisfaction Distribution')
+# plt.axis('equal')
+# plt.show()
+
+## CORRELATION MATRIX
+
+# Compute the correlation matrix
+correlation_matrix = combined_train.corr()
+
+def custom_format(x):
+    if x == 0:
+        return '0.00'
+    formatted = '{:.2f}'.format(x)
+    return formatted.lstrip('0') if x != 0 else '0.00'
+
+# Create a DataFrame with formatted strings for the heatmap annotations
+formatted_matrix = correlation_matrix.applymap(custom_format)
+
+# Plot the heatmap with the formatted annotations
+plt.figure(figsize=(12, 10)) 
+sns.heatmap(correlation_matrix, annot=formatted_matrix, fmt='', cmap='coolwarm', vmin=-1, vmax=1, annot_kws={"size": 8})
+plt.title('Correlation Matrix')
+plt.show()
+
+# Print the formatted correlation matrix
+print("Correlation Matrix:")
+print(formatted_matrix)
+
+# you can use SMOTE for decision trees with below to fill in missing values
+# x_train = pd.DataFrame(imputer.fit_transform(x_train), columns=x_train.columns)
+# x_test = pd.DataFrame(imputer.transform(x_test), columns=x_test.columns)
+
+## BALANCING THE TRAINING DATA
+
+# check class distribution
+#satisfied = dataset_train[dataset_train['satisfaction'] == 'satisfied'].shape[0]
+#print(satisfied)      ## output: 45,025
+#neutral_or_dissatisfied = dataset_train[dataset_train['satisfaction'] == 'neutral or dissatisfied'].shape[0]
+#print(neutral_or_dissatisfied)    ## output: 58,879
+
+# oversampling using SMOTE
+# smote = SMOTE(random_state=42)
+# x_train_smote, y_train_smote = smote.fit_resample(x_train, y_train)
+
+# FORWARD FEATURE SELECTION
+
+scaler = StandardScaler()
+x_train_scaled = scaler.fit_transform(x_train)
+x_test_scaled = scaler.transform(x_test)
+num_features = x_train_scaled.shape[1]
+selected_features = []
+remaining_features = list(range(num_features))
+best_score = 0
+
+def mean_cv_score(X, y, features):
+    model = LogisticRegression(max_iter=1000)
+    return np.mean(cross_val_score(model, X[:, features], y, cv=5))
+
+# Forward selection process
+while remaining_features:
+    scores_with_candidates = []
+    
+    for feature in remaining_features:
+        # Create new feature set with the candidate feature
+        candidate_features = selected_features + [feature]
+        score = mean_cv_score(x_train_scaled, y_train, candidate_features)
+        scores_with_candidates.append((score, feature))
+    
+    # Sort candidates by score
+    scores_with_candidates.sort(reverse=True, key=lambda x: x[0])
+    best_score, best_feature = scores_with_candidates[0]
+    
+    selected_features.append(best_feature)
+    remaining_features.remove(best_feature)
+    print(f"Added feature {best_feature}, score: {best_score:.4f}")
+
+# Print the selected features
+print(f"Selected features: {selected_features}")
+
+# Train model using selected features
+model = LogisticRegression(max_iter=1000)
+model.fit(x_train_scaled[:, selected_features], y_train)
+
+# Evaluate on the test set
+from sklearn.metrics import accuracy_score
+
+y_pred = model.predict(x_test_scaled[:, selected_features])
+test_accuracy = accuracy_score(y_test, y_pred)
+print(f"Test accuracy with selected features: {test_accuracy:.4f}")
+
+# RANDOM FORESTS
+rf_model = RandomForestClassifier(random_state=42)
+rf_model.fit(x_train, y_train)
+y_rf_prediction = rf_model.predict(x_test)
+print("Confusion Matrix using Random Forest:")
+print(confusion_matrix(y_test, y_rf_prediction))
+
+# Print the classification report
+print("\nClassification Report using Random Forest:")
+print(classification_report(y_test, y_rf_prediction, digits=3))
+
+#feature_importances = rf_model.feature_importances_
+
+# Create a list of feature names from your dataset
+#feature_names = list(x_train.columns)
+
+# Sort feature importances in descending order
+#sorted_indices = feature_importances.argsort()[::-1]
+
+#print("Feature Importances:")
+#for i in sorted_indices:
+#    print(f"{feature_names[i]}: {feature_importances[i]}")
+
+# when using KNN to replace mising values:
+# rf_model.fit(x_train_imputed, y_train)
+# y_rf_prediction = model.predict(x_test_imputed)
+# print("Evaluate the Random Forest model on the testing data:")
+# print(classification_report(y_test, y_rf_prediction))
+
+# LOGISITIC REGULARIZATION
+
+# feature importance
+scaler = StandardScaler()
+x_train_scaled = scaler.fit_transform(x_train)
+
+# Create a Logistic Regression model with L1 regularization (Lasso)
+logreg_model = LogisticRegression(penalty='l1', solver='liblinear', random_state=42)
+logreg_model.fit(x_train_scaled, y_train)
+
+# Retrieve selected features (non-zero coefficients)
+selected_features = x_train.columns[logreg_model.coef_[0] != 0]
+
+print("Selected Features using L1 Regularization:")
+print(selected_features)
+
+# LINEAR REGRESSION
+
+# feature importance
+lr_model = LinearRegression()
+lr_model.fit(x_train, y_train)
+coefficients = lr_model.coef_
+intercept = lr_model.intercept_
+feature_names = x_train.columns
+coefficients_df = pd.DataFrame({'Feature': feature_names, 'Coefficient': coefficients})
+coefficients_df['Abs_Coefficient'] = coefficients_df['Coefficient'].abs()
+coefficients_df = coefficients_df.sort_values(by='Abs_Coefficient', ascending=False).reset_index(drop=True)
+print('LR:', coefficients_df)
+
+# DECISION TREES
+
+dt_model = DecisionTreeClassifier(random_state=42)
+dt_model.fit(x_train, y_train)
+
+# feature_importances = dt_model.feature_importances_
+#feature_importance_df = pd.DataFrame({'Feature': x_train.columns, 'Importance': feature_importances})
+#feature_importance_df = feature_importance_df.sort_values(by='Importance', ascending=False).reset_index(drop=True)
+#print("Top 10 most important features:")
+#print(feature_importance_df.head(10))
+#plt.figure(figsize=(10, 6))
+#sns.barplot(x='Importance', y='Feature', data=feature_importance_df.head(10), palette='viridis')
+#plt.title('Top 10 most important features')
+#plt.xlabel('Importance')
+#plt.ylabel('Feature')
+#plt.show()
+
+y_dt_prediction = dt_model.predict(x_test)
+print("Decision Tree Model (Before Pruning) - Confusion Matrix:")
+print(confusion_matrix(y_test, y_dt_prediction))
+print("\nDecision Tree Model (Before Pruning) - Classification Report:")
+print(classification_report(y_test, y_dt_prediction, digits=3))
+
+dt_model_pruned = DecisionTreeClassifier(random_state=42, max_depth=10)
+dt_model_pruned.fit(x_train, y_train)
+y_dt_pruned_prediction = dt_model_pruned.predict(x_test)
+print("\nPruned Decision Tree Model - Confusion Matrix:")
+print(confusion_matrix(y_test, y_dt_pruned_prediction))
+print("\nPruned Decision Tree Model - Classification Report:")
+print(classification_report(y_test, y_dt_pruned_prediction, digits=3))
+
+# NAIVE BAYES'
+nb_model = GaussianNB()
+nb_model.fit(x_train, y_train)
+y_nb_prediction = nb_model.predict(x_test)
+print("Naive Bayes' - Confusion Matrix:")
+print(confusion_matrix(y_test, y_nb_prediction))
+print("\nNaive Bayes' - Classification Report:")
+print(classification_report(y_test, y_nb_prediction, digits=3))
+
+# KNN
+knn_model = KNeighborsClassifier(n_neighbors=1)
+knn_model.fit(x_train, y_train)
+y_knn_prediction = knn_model.predict(x_test)
+print("KNN Model - Confusion Matrix:")
+print(confusion_matrix(y_test, y_knn_prediction))
+print("\nKNN Model - Classification Report:")
+print(classification_report(y_test, y_knn_prediction, digits=3))
+
+
+
+## CATEGORIZE NUMERICAL DATA
+
+# training data
+
+# age
+# age_bins = [(0, 17), (18, 25), (26, 40), (41, 60), (61, float('inf'))]
+# age_labels = ['0-17', '18-25', '26-40', '41-60', '61+']
+# x_train['age'] = pd.cut(x_train['age'], bins=[bin[0] for bin in age_bins] + [float('inf')], labels=age_labels, right=False)
+
+# flight distance
+#max_flight_train_distance = x_train['flight-distance'].max()
+#print("Maximum flight train distance:", max_flight_train_distance)
+# flight_distance_bins = [(0, 999), (1000, 1999), (2000, 2999), (3000, 3999), (4000, float('inf'))]
+# distance_labels = ['0-999', '1000-1999', '2000-2999', '3000-3999', '4000+']
+# x_train['flight-distance'] = pd.cut(x_train['flight-distance'], bins=[bin[0] for bin in flight_distance_bins] + [float('inf')], labels=distance_labels, right=False)
+
+# departure delay in minutes
+#max_departure_train_time = x_train['departure-delay-in-minutes'].max()
+#print("Maximum departure train time:", max_departure_train_time)
+# delay_in_minutes_bins = [(0, 0), (1, 60), (61, 240), (241, 600), (600, float('inf'))]
+# delay_in_minutes_labels = ['No delay', '1 hour delay or less', '1-4 hour delay', '4-10 hour delay', 'More than 10 hour delay']
+# x_train['departure-delay-in-minutes'] = pd.cut(x_train['departure-delay-in-minutes'], bins=[bin[0] for bin in delay_in_minutes_bins] + [float('inf')], labels=delay_in_minutes_labels, right=False)
+
+# arrival delay in minutes
+#max_arrival_train_time = x_train['arrival-delay-in-minutes'].max()
+#print("Maximum arrival train time:", max_arrival_train_time)
+# x_train['arrival-delay-in-minutes'] = pd.cut(x_train['arrival-delay-in-minutes'], bins=[bin[0] for bin in delay_in_minutes_bins] + [float('inf')], labels=delay_in_minutes_labels, right=False)
+
+# testing data
+
+# age
+# x_test['age'] = pd.cut(x_test['age'], bins=[bin[0] for bin in age_bins] + [float('inf')], labels=age_labels, right=False)
+
+# flight distance
+#max_flight_test_distance = x_test['flight-distance'].max()
+#print("Maximum flight test distance:", max_flight_test_distance)
+# x_test['flight-distance'] = pd.cut(x_test['flight-distance'], bins=[bin[0] for bin in flight_distance_bins] + [float('inf')], labels=distance_labels, right=False)
+
+# departure delay in minutes
+#max_departure_test_time = x_test['departure-delay-in-minutes'].max()
+#print("Maximum departure test time:", max_departure_test_time)
+# x_test['departure-delay-in-minutes'] = pd.cut(x_test['departure-delay-in-minutes'], bins=[bin[0] for bin in delay_in_minutes_bins] + [float('inf')], labels=delay_in_minutes_labels, right=False)
+
+# arrival delay in minutes
+#max_arrival_test_time = x_test['arrival-delay-in-minutes'].max()
+#print("Maximum arrival test time:", max_arrival_test_time)
+# x_test['arrival-delay-in-minutes'] = pd.cut(x_test['arrival-delay-in-minutes'], bins=[bin[0] for bin in delay_in_minutes_bins] + [float('inf')], labels=delay_in_minutes_labels, right=False)
